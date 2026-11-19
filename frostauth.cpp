@@ -1,9 +1,3 @@
-// FrostAuth SDK — C++ port. Implementation.
-// See frostauth.hpp for the wire-behavior contract.
-//
-// Third-party deps: libsodium (Ed25519 verify + RNG). HTTP: WinHTTP on
-// Windows, libcurl elsewhere (guarded by FROSTAUTH_USE_CURL).
-
 #include "frostauth.hpp"
 
 #include <algorithm>
@@ -36,7 +30,6 @@
 
 namespace frostauth {
 
-// ── tiny utilities ───────────────────────────────────────────────────────────
 
 static std::string ToHex(const unsigned char* data, std::size_t len) {
     static const char* digits = "0123456789abcdef";
@@ -63,20 +56,17 @@ std::string Sha256HexFile(std::istream& stream) {
     crypto_hash_sha256_init(&state);
     char buf[8192];
     while (stream.read(buf, sizeof(buf)) || stream.gcount() > 0) {
-        crypto_hash_sha256_update(&state, reinterpret_cast<const unsigned char*>(buf),
-                                  static_cast<unsigned long long>(stream.gcount()));
+        crypto_hash_sha256_update(&state, reinterpret_cast<const unsigned char*>(buf), static_cast<unsigned long long>(stream.gcount()));
     }
     crypto_hash_sha256_final(&state, hash);
     return ToHex(hash, 32);
 }
 
 static std::string B64uEncode(const unsigned char* data, std::size_t len) {
-    // libsodium has no base64url; build from sodium_base64 with alphabet swap.
     const std::size_t b64len = sodium_base64_encoded_len(len, sodium_base64_VARIANT_ORIGINAL);
     std::string buf(b64len, '\0');
     char* out = sodium_bin2base64(buf.data(), b64len, data, len, sodium_base64_VARIANT_ORIGINAL);
     std::string s(out);
-    // original variant uses +/ and = padding; convert to base64url, strip pad
     std::replace(s.begin(), s.end(), '+', '-');
     std::replace(s.begin(), s.end(), '/', '_');
     while (!s.empty() && s.back() == '=') s.pop_back();
@@ -90,8 +80,7 @@ static std::vector<unsigned char> B64uDecode(const std::string& in) {
     while (s.size() % 4) s.push_back('=');
     std::size_t binlen = 0;
     std::vector<unsigned char> out(s.size() / 4 * 3 + 3);
-    if (sodium_base642bin(out.data(), out.size(), s.data(), s.size(), nullptr, &binlen,
-                          nullptr, sodium_base64_VARIANT_ORIGINAL) != 0) {
+    if (sodium_base642bin(out.data(), out.size(), s.data(), s.size(), nullptr, &binlen, nullptr, sodium_base64_VARIANT_ORIGINAL) != 0) {
         throw FrostAuthError("not a usable base64url value", Code::Config, 0, false);
     }
     out.resize(binlen);
@@ -99,8 +88,7 @@ static std::vector<unsigned char> B64uDecode(const std::string& in) {
 }
 
 static long long NowMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
 static std::vector<unsigned char> SpkiToRaw(const std::string& b64) {
@@ -130,7 +118,6 @@ static std::string UrlEscape(const std::string& s) {
     return out;
 }
 
-// ── JSON ─────────────────────────────────────────────────────────────────────
 
 namespace {
 
@@ -254,7 +241,6 @@ private:
                         if (pos_ + 4 > s_.size()) Fail("bad \\u escape");
                         unsigned code = std::stoul(s_.substr(pos_, 4), nullptr, 16);
                         pos_ += 4;
-                        // encode as UTF-8 (BMP only; surrogate pairs rare in our payloads)
                         if (code < 0x80) {
                             out.push_back(static_cast<char>(code));
                         } else if (code < 0x800) {
@@ -350,7 +336,7 @@ void DumpValue(const Json& v, std::string& out) {
     }
 }
 
-}  // namespace
+}
 
 Json Json::parse(const std::string& text) {
     if (text.empty()) return Json{};
@@ -363,7 +349,6 @@ std::string Json::dump() const {
     return out;
 }
 
-// ── assertions ───────────────────────────────────────────────────────────────
 
 namespace {
 
@@ -374,20 +359,17 @@ std::string ClaimField(const Json& claims, const char* key) {
 
 std::string ClaimString(const Json& claims) {
     std::string out = "frostauth:assertion:v1\n1";
-    for (const char* f : {"lic", "pid", "dev", "hwid", "status", "tier",
-                          "exp", "iat", "nbf", "naf"}) {
+    for (const char* f : {"lic", "pid", "dev", "hwid", "status", "tier", "exp", "iat", "nbf", "naf"}) {
         out.push_back('\n');
         out += ClaimField(claims, f);
     }
     return out;
 }
 
-// ISO-8601 (or epoch) to epoch-ms. Returns false on garbage — callers fail closed.
 bool ParseMs(const Json& v, long long& out) {
     if (v.type == Json::Type::Number) { out = static_cast<long long>(v.number); return true; }
     if (v.type != Json::Type::String || v.string.empty()) return false;
     const std::string& s = v.string;
-    // Expected: 2026-09-15T00:00:00[.mmm]Z
     if (s.size() >= 20 && s[4] == '-' && s[7] == '-' && s[10] == 'T') {
         unsigned y, mo, d, h, mi, sec;
         if (std::sscanf(s.c_str(), "%4u-%2u-%2uT%2u:%2u:%2u", &y, &mo, &d, &h, &mi, &sec) == 6) {
@@ -416,11 +398,9 @@ bool ParseMs(const Json& v, long long& out) {
     return false;
 }
 
-}  // namespace
+}
 
-AssertionResult VerifyAssertion(const std::string& assertion,
-                                const std::map<std::string, std::vector<unsigned char>>& pins,
-                                const std::string& hwid) {
+AssertionResult VerifyAssertion(const std::string& assertion, const std::map<std::string, std::vector<unsigned char>>& pins, const std::string& hwid) {
     AssertionResult r;
     if (pins.empty()) { r.reason = "no pinned public key"; return r; }
 
@@ -460,9 +440,7 @@ AssertionResult VerifyAssertion(const std::string& assertion,
     std::string material = ClaimString(claims);
     bool ok = false;
     for (auto* key : candidates) {
-        if (crypto_sign_verify_detached(signature.data(),
-                                        reinterpret_cast<const unsigned char*>(material.data()),
-                                        material.size(), key) == 0) {
+        if (crypto_sign_verify_detached(signature.data(), reinterpret_cast<const unsigned char*>(material.data()), material.size(), key) == 0) {
             ok = true;
             break;
         }
@@ -504,7 +482,6 @@ AssertionResult VerifyAssertion(const std::string& assertion,
     return r;
 }
 
-// ── machine identity ─────────────────────────────────────────────────────────
 
 #ifdef _WIN32
 static std::string RunCommand(const std::string& cmdline, DWORD timeout_ms = 5000) {
@@ -523,8 +500,7 @@ static std::string RunCommand(const std::string& cmdline, DWORD timeout_ms = 500
     PROCESS_INFORMATION pi{};
     std::vector<char> cmd(cmdline.begin(), cmdline.end());
     cmd.push_back('\0');
-    if (!CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-                        nullptr, nullptr, &si, &pi)) {
+    if (!CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         CloseHandle(readEnd); CloseHandle(writeEnd);
         return {};
     }
@@ -539,7 +515,6 @@ static std::string RunCommand(const std::string& cmdline, DWORD timeout_ms = 500
             out.append(buf, read);
         }
         if (WaitForSingleObject(pi.hProcess, 200) == WAIT_OBJECT_0) {
-            // drain remainder
             while (ReadFile(readEnd, buf, sizeof(buf), &read, nullptr) && read > 0) {
                 out.append(buf, read);
             }
@@ -574,7 +549,6 @@ static std::string RawMachineId() {
     auto pos = out.find("REG_SZ");
     if (pos != std::string::npos) {
         std::string val = out.substr(pos + 6);
-        // trim
         auto first = val.find_first_not_of(" \t\r\n");
         auto last = val.find_last_not_of(" \t\r\n");
         if (first != std::string::npos) cached = val.substr(first, last - first + 1);
@@ -598,7 +572,6 @@ static std::string RawMachineId() {
     if (done) return cached;
     std::string found = ReadFileIf("/etc/machine-id");
     if (found.empty()) found = ReadFileIf("/var/lib/dbus/machine-id");
-    // trim
     auto first = found.find_first_not_of(" \t\r\n");
     if (first != std::string::npos) {
         auto last = found.find_last_not_of(" \t\r\n");
@@ -705,15 +678,9 @@ std::pair<std::vector<std::pair<std::string, std::string>>, bool> HardwareProfil
     components.emplace_back("host", Facet(host));
 #endif
 
-    // MAC collection is intentionally omitted in the C++ port: doing it
-    // portably needs platform APIs (GetAdaptersAddresses / getifaddrs) and
-    // the server treats facets as advisory-only. CPU string carries the VM hint.
     auto lower = cpu;
-    std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    const char* vmHints[] = {"vmware", "virtualbox", "vbox", "qemu", "kvm", "xen",
-                             "hyper-v", "hyperv", "parallels", "bhyve",
-                             "virtual machine", "innotek"};
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const char* vmHints[] = {"vmware", "virtualbox", "vbox", "qemu", "kvm", "xen", "hyper-v", "hyperv", "parallels", "bhyve", "virtual machine", "innotek"};
     bool vm = false;
     for (auto* hint : vmHints) {
         if (lower.find(hint) != std::string::npos) { vm = true; break; }
@@ -721,7 +688,6 @@ std::pair<std::vector<std::pair<std::string, std::string>>, bool> HardwareProfil
     return {components, vm};
 }
 
-// ── DNS-hijack tripwire ──────────────────────────────────────────────────────
 
 namespace {
 
@@ -742,7 +708,6 @@ std::string HostOf(const std::string& url) {
 
 bool IsPrivateIpText(const std::string& host) {
 #ifdef _WIN32
-    // getaddrinfo + classification
     struct addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     struct addrinfo* result = nullptr;
@@ -800,9 +765,8 @@ bool IsPrivateIpText(const std::string& host) {
 #endif
 }
 
-}  // namespace
+}
 
-// ── transport ────────────────────────────────────────────────────────────────
 
 namespace {
 
@@ -812,10 +776,9 @@ struct HttpResponse {
     std::map<std::string, std::string> headers;
 };
 
-}  // namespace
+}
 
 #ifdef _WIN32
-// WinHTTP transport (wide-char path handling included).
 static bool UrlParts(const std::string& url, bool& https, std::wstring& hostW, INTERNET_PORT& port, std::wstring& pathW) {
     std::string rest = url;
     if (rest.rfind("https://", 0) == 0) { https = true; rest = rest.substr(8); }
@@ -852,23 +815,16 @@ static HttpResponse WinHttpRoundTrip(
         throw FrostAuthError("invalid base url", Code::Config, 0, false);
     }
     std::wstring full_path = pathW;
-    // URL is already built path-only; keep as-is.
 
-    HINTERNET session = WinHttpOpen(L"frostauth-sdk-cpp/1.0.0",
-                                    WINHTTP_ACCESS_TYPE_NO_PROXY,
-                                    WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET session = WinHttpOpen(L"frostauth-sdk-cpp/1.0.0", WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session) throw FrostAuthError("could not reach the licence server", Code::Network, 0, true);
     WinHttpSetTimeouts(session, timeout_ms, timeout_ms, timeout_ms, timeout_ms);
 
     HINTERNET connect = WinHttpConnect(session, hostW.c_str(), port, 0);
     if (!connect) { WinHttpCloseHandle(session); throw FrostAuthError("could not reach the licence server", Code::Network, 0, true); }
 
-    const wchar_t* verb = method == "GET" ? L"GET" : method == "POST" ? L"POST" : method == "PUT" ? L"PUT"
-                        : method == "PATCH" ? L"PATCH" : method == "DELETE" ? L"DELETE" : L"POST";
-    HINTERNET request = WinHttpOpenRequest(connect, verb, full_path.c_str(), nullptr,
-                                           WINHTTP_NO_REFERER,
-                                           WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                           https ? WINHTTP_FLAG_SECURE : 0);
+    const wchar_t* verb = method == "GET" ? L"GET" : method == "POST" ? L"POST" : method == "PUT" ? L"PUT" : method == "PATCH" ? L"PATCH" : method == "DELETE" ? L"DELETE" : L"POST";
+    HINTERNET request = WinHttpOpenRequest(connect, verb, full_path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, https ? WINHTTP_FLAG_SECURE : 0);
     if (!request) {
         WinHttpCloseHandle(connect); WinHttpCloseHandle(session);
         throw FrostAuthError("could not reach the licence server", Code::Network, 0, true);
@@ -882,26 +838,19 @@ static HttpResponse WinHttpRoundTrip(
 
     const char* bodyPtr = body.empty() ? nullptr : body.data();
     DWORD bodyLen = static_cast<DWORD>(body.size());
-    BOOL sent = WinHttpSendRequest(request,
-                                   header_blob.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : header_blob.c_str(),
-                                   static_cast<DWORD>(header_blob.size()),
-                                   const_cast<char*>(bodyPtr), bodyLen, bodyLen, 0);
+    BOOL sent = WinHttpSendRequest(request, header_blob.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : header_blob.c_str(), static_cast<DWORD>(header_blob.size()), const_cast<char*>(bodyPtr), bodyLen, bodyLen, 0);
     if (sent && WinHttpReceiveResponse(request, nullptr)) {
         DWORD status = 0, size = sizeof(status);
-        WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                            WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX);
+        WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX);
         out.status = static_cast<int>(status);
 
-        // headers of interest
-        for (const char* h : {"x-frost-signature", "x-frost-timestamp", "x-frost-nonce",
-                              "x-frost-key-id", "retry-after"}) {
+        for (const char* h : {"x-frost-signature", "x-frost-timestamp", "x-frost-nonce", "x-frost-key-id", "retry-after"}) {
             std::wstring nameW(h, h + std::strlen(h));
             DWORD hsize = 0;
             WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, nameW.c_str(), nullptr, &hsize, WINHTTP_NO_HEADER_INDEX);
             if (GetLastError() == ERROR_INSUFFICIENT_BUFFER && hsize > 0) {
                 std::wstring val(hsize / 2, L'\0');
-                if (WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, nameW.c_str(), val.data(), &hsize,
-                                        WINHTTP_NO_HEADER_INDEX)) {
+                if (WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, nameW.c_str(), val.data(), &hsize, WINHTTP_NO_HEADER_INDEX)) {
                     val.resize(hsize / 2);
                     out.headers[h] = std::string(val.begin(), val.end());
                 }
@@ -993,8 +942,7 @@ static HttpResponse CurlRoundTrip(
     curl_easy_cleanup(curl);
     if (rc != CURLE_OK) {
         bool timeout = rc == CURLE_OPERATION_TIMEDOUT;
-        throw FrostAuthError(timeout ? "request timed out" : "could not reach the licence server",
-                             timeout ? Code::Timeout : Code::Network, 0, true);
+        throw FrostAuthError(timeout ? "request timed out" : "could not reach the licence server", timeout ? Code::Timeout : Code::Network, 0, true);
     }
     return out;
 }
@@ -1011,12 +959,11 @@ static HttpResponse HttpRoundTrip(
 #endif
 }
 
-// ── client ──────────────────────────────────────────────────────────────────
 
 struct FrostAuthClient::Impl {
     Options o;
     std::string base_url;
-    std::map<std::string, std::vector<unsigned char>> keys;  // id -> raw 32 bytes
+    std::map<std::string, std::vector<unsigned char>> keys;
     Json app, license, product, device, account;
     std::string user;
     std::vector<Json> subscriptions;
@@ -1061,7 +1008,6 @@ struct FrostAuthClient::Impl {
             if (auto* ua = v->find("updateAvailable"); ua && ua->type == Json::Type::Bool && ua->boolean) {
                 std::string latest = v->str_or("latest");
                 if (latest.empty()) latest = v->str_or("version");
-                // note: fired by caller (hooks must not run under the lock)
             }
         }
         if (auto* v = data.find("device"); v && v->is_object()) device = *v;
@@ -1117,8 +1063,7 @@ struct FrostAuthClient::Impl {
 
     using Round = HttpResponse;
 
-    Round OneRound(const std::string& method, const std::string& path,
-                   const std::string& body, const std::string& token) {
+    Round OneRound(const std::string& method, const std::string& path, const std::string& body, const std::string& token) {
         unsigned char nonceBytes[16];
         randombytes_buf(nonceBytes, sizeof(nonceBytes));
         std::string nonce = B64uEncode(nonceBytes, sizeof(nonceBytes));
@@ -1138,8 +1083,7 @@ struct FrostAuthClient::Impl {
         return r;
     }
 
-    void VerifyResponse(const Round& r, const std::string& nonce, const std::string& method,
-                        const std::string& path) {
+    void VerifyResponse(const Round& r, const std::string& nonce, const std::string& method, const std::string& path) {
         std::map<std::string, std::vector<unsigned char>> current;
         {
             std::lock_guard<std::mutex> lk(mtx);
@@ -1148,8 +1092,7 @@ struct FrostAuthClient::Impl {
         if (current.empty()) return;
 
         auto reject = [&](const std::string& why) {
-            throw FrostAuthError("Refusing an unverified answer from the licence server: " + why,
-                                 Code::Signature, r.status, false);
+            throw FrostAuthError("Refusing an unverified answer from the licence server: " + why, Code::Signature, r.status, false);
         };
 
         auto sigIt = r.headers.find("x-frost-signature");
@@ -1173,22 +1116,17 @@ struct FrostAuthClient::Impl {
             reject("it was signed with key \"" + keyId + "\", which this build does not trust");
         }
 
-        std::string material = ts + "\n" + nonce + "\n" + method + "\n" + path + "\n"
-                             + std::to_string(r.status) + "\n" + r.body;
+        std::string material = ts + "\n" + nonce + "\n" + method + "\n" + path + "\n" + std::to_string(r.status) + "\n" + r.body;
         auto signature = B64uDecode(sig);
         for (auto* key : candidates) {
-            if (crypto_sign_verify_detached(signature.data(),
-                                            reinterpret_cast<const unsigned char*>(material.data()),
-                                            material.size(), key) == 0) {
+            if (crypto_sign_verify_detached(signature.data(), reinterpret_cast<const unsigned char*>(material.data()), material.size(), key) == 0) {
                 return;
             }
         }
         reject("the signature did not match");
     }
 
-    // Parses + adopts the success envelope; returns response.data.
-    Json RequestEnvelope(const std::string& method, const std::string& path,
-                         const Json* body, const std::string& token) {
+    Json RequestEnvelope(const std::string& method, const std::string& path, const Json* body, const std::string& token) {
         FrostAuthError last("request failed", Code::Network, 0, true);
         for (int attempt = 0; attempt <= o.retries; ++attempt) {
             if (attempt > 0) {
@@ -1212,7 +1150,7 @@ struct FrostAuthClient::Impl {
                     try {
                         int parsed = std::stoi(raIt->second);
                         if (parsed > 0 && parsed <= 10) wait = parsed;
-                    } catch (...) { /* default 2 */ }
+                    } catch (...) {   }
                 }
                 last = FrostAuthError("Rate limited by the licence server", Code::RateLimited, 429, true);
                 if (attempt < o.retries) {
@@ -1236,8 +1174,7 @@ struct FrostAuthClient::Impl {
                     throw FrostAuthError(msg, typed, round.status, false);
                 }
                 std::string msg = resp ? resp->str_or("message") : "";
-                last = FrostAuthError(msg.empty() ? "The licence server is having trouble" : msg,
-                                      Code::ServerError, round.status, true);
+                last = FrostAuthError(msg.empty() ? "The licence server is having trouble" : msg, Code::ServerError, round.status, true);
                 continue;
             }
 
@@ -1255,8 +1192,7 @@ struct FrostAuthClient::Impl {
             }
             if (hasError || round.status < 200 || round.status > 299) {
                 std::string code = !respCode.empty() ? respCode : (!errCode.empty() ? errCode : Code::ServerError);
-                std::string msg = !respMsg.empty() ? respMsg
-                                                   : "Request failed (" + std::to_string(round.status) + ")";
+                std::string msg = !respMsg.empty() ? respMsg : "Request failed (" + std::to_string(round.status) + ")";
                 throw FrostAuthError(msg, code, round.status, false);
             }
 
@@ -1277,8 +1213,7 @@ struct FrostAuthClient::Impl {
 };
 
 std::shared_ptr<FrostAuthClient> FrostAuthClient::Create(Options o) {
-    for (auto [name, v] : {std::pair<const char*, std::string>{"owner", o.owner},
-                           {"product", o.product}, {"version", o.version}}) {
+    for (auto [name, v] : {std::pair<const char*, std::string>{"owner", o.owner}, {"product", o.product}, {"version", o.version}}) {
         if (v.empty()) {
             throw FrostAuthError(std::string(name) + " is required", Code::Config, 0, false);
         }
@@ -1295,7 +1230,6 @@ std::shared_ptr<FrostAuthClient> FrostAuthClient::Create(Options o) {
     client->impl_->o = std::move(o);
     client->impl_->base_url = client->impl_->o.base_url.empty() ? kDefaultBaseUrl : client->impl_->o.base_url;
 
-    // http refusal for non-loopback plain http
     std::string scheme;
     {
         const std::string& u = client->impl_->base_url;
@@ -1329,7 +1263,6 @@ Json FrostAuthClient::Init() {
     }
     std::string keyId = body.str_or("key_id");
     std::string served = body.str_or("public_key");
-    // TOFU: the served key must match the key baked into this build.
     static const std::map<std::string, std::string> kPublicKeys = {
         {"k2", "MCowBQYDK2VwAyEA7xdiHZqo4DmS4O1C8FavYq9Yqk5QbBkJiicb1MTTFzo"},
     };
@@ -1347,8 +1280,7 @@ Json FrostAuthClient::Init() {
     return Snapshot();
 }
 
-Json FrostAuthClient::Activate(const std::string& key, const std::string& build_hash,
-                               const std::string& label) {
+Json FrostAuthClient::Activate(const std::string& key, const std::string& build_hash, const std::string& label) {
     impl_->RequireInit();
     if (key.empty()) throw FrostAuthError("licence key is required", Code::Config, 0, false);
     Json body; body.type = Json::Type::Object;
@@ -1382,9 +1314,7 @@ Json FrostAuthClient::Activate(const std::string& key, const std::string& build_
     return Snapshot();
 }
 
-Json FrostAuthClient::Register(const std::string& key, const std::string& username,
-                               const std::string& password, const std::string& build_hash,
-                               const std::string& label) {
+Json FrostAuthClient::Register(const std::string& key, const std::string& username, const std::string& password, const std::string& build_hash, const std::string& label) {
     impl_->RequireInit();
     if (key.empty()) throw FrostAuthError("licence key is required", Code::Config, 0, false);
     Json body; body.type = Json::Type::Object;
@@ -1420,9 +1350,7 @@ Json FrostAuthClient::Register(const std::string& key, const std::string& userna
     return Snapshot();
 }
 
-Json FrostAuthClient::Login(const std::string& username, const std::string& password,
-                            const std::string& twofa, const std::string& build_hash,
-                            const std::string& label) {
+Json FrostAuthClient::Login(const std::string& username, const std::string& password, const std::string& twofa, const std::string& build_hash, const std::string& label) {
     impl_->RequireInit();
     Json body; body.type = Json::Type::Object;
     body.set("owner", Json::Str(impl_->o.owner));
@@ -1459,8 +1387,7 @@ Json FrostAuthClient::Login(const std::string& username, const std::string& pass
     return Snapshot();
 }
 
-Json FrostAuthClient::Upgrade(const std::string& username, const std::string& password,
-                              const std::string& key) {
+Json FrostAuthClient::Upgrade(const std::string& username, const std::string& password, const std::string& key) {
     impl_->RequireInit();
     Json body; body.type = Json::Type::Object;
     body.set("owner", Json::Str(impl_->o.owner));
@@ -1500,8 +1427,7 @@ Json FrostAuthClient::Session() {
         tok = impl_->Token();
     }
     if (tok.empty()) {
-        throw FrostAuthError("This call needs a session — activate or sign in first",
-                             Code::NotActivated, 0, false);
+        throw FrostAuthError("This call needs a session — activate or sign in first", Code::NotActivated, 0, false);
     }
     Json data = impl_->RequestEnvelope("GET", "/api/v1/sdk/session", nullptr, tok);
     {
@@ -1511,17 +1437,14 @@ Json FrostAuthClient::Session() {
     return Snapshot();
 }
 
-// Session-scoped helper (member so it can name the private Impl).
-Json FrostAuthClient::AuthedCall(const std::string& method, const std::string& path,
-                                 const Json* body) {
+Json FrostAuthClient::AuthedCall(const std::string& method, const std::string& path, const Json* body) {
     std::string tok;
     {
         std::lock_guard<std::mutex> lk(impl_->mtx);
         tok = impl_->Token();
     }
     if (tok.empty()) {
-        throw FrostAuthError("This call needs a session — activate or sign in first",
-                             Code::NotActivated, 0, false);
+        throw FrostAuthError("This call needs a session — activate or sign in first", Code::NotActivated, 0, false);
     }
     return impl_->RequestEnvelope(method, path, body, tok);
 }
@@ -1581,8 +1504,7 @@ Json FrostAuthClient::Ban(const std::string& reason) {
 Json FrostAuthClient::FetchOnline() { return AuthedCall("GET", "/api/v1/sdk/online", nullptr); }
 Json FrostAuthClient::CheckBlacklist() { return AuthedCall("GET", "/api/v1/sdk/checkblacklist", nullptr); }
 
-Json FrostAuthClient::Webhook(const std::string& web_id, const std::string& params,
-                              const std::string& body, const std::string& conttype) {
+Json FrostAuthClient::Webhook(const std::string& web_id, const std::string& params, const std::string& body, const std::string& conttype) {
     if (web_id.empty()) throw FrostAuthError("webhook id is required", Code::Config, 0, false);
     Json payload; payload.type = Json::Type::Object;
     if (!params.empty()) payload.set("params", Json::Str(Trunc(params, 2048)));
@@ -1593,7 +1515,7 @@ Json FrostAuthClient::Webhook(const std::string& web_id, const std::string& para
 
 Json FrostAuthClient::AppData() { return AuthedCall("GET", "/api/v1/sdk/app", nullptr); }
 
-std::vector<unsigned char> FrostAuthClient::File(const std::string& /*file_id*/) {
+std::vector<unsigned char> FrostAuthClient::File(const std::string&  ) {
     throw FrostAuthError("File downloads are disabled on this server", Code::ServerError, 0, false);
 }
 
@@ -1668,9 +1590,6 @@ void FrostAuthClient::StartHeartbeat(int interval_seconds) {
     }
     StopHeartbeat();
     impl_->heartbeat_stop = false;
-    // NOTE: the heartbeat thread borrows nothing; it polls the client's own
-    // state and exits when closed/stop is set. The owning application must
-    // keep the client alive (or call Close) for the duration.
     impl_->heartbeat = std::thread([this, interval_seconds]() {
         int tick = 0;
         while (!impl_->heartbeat_stop.load()) {
@@ -1682,7 +1601,6 @@ void FrostAuthClient::StartHeartbeat(int interval_seconds) {
             try {
                 Validate();
             } catch (FrostAuthError& err) {
-                // NOTE: never join the current thread — set the flag and exit.
                 if (err.needs_activation()) {
                     { std::lock_guard<std::mutex> lock(impl_->mtx); impl_->activated = false; }
                     impl_->heartbeat_stop = true;
@@ -1719,9 +1637,7 @@ void FrostAuthClient::StartHeartbeat(int interval_seconds) {
                 if (stop) {
                     impl_->heartbeat_stop = true;
                     if (on_invalid) {
-                        on_invalid(FrostAuthError("Could not reach the licence server for "
-                                                  + std::to_string(offlineFor) + "s",
-                                                  Code::Network, 0, true));
+                        on_invalid(FrostAuthError("Could not reach the licence server for " + std::to_string(offlineFor) + "s", Code::Network, 0, true));
                     }
                     return;
                 }
@@ -1778,4 +1694,4 @@ Json FrostAuthClient::Snapshot() const {
     return impl_->SnapshotLocked();
 }
 
-}  // namespace frostauth
+}
