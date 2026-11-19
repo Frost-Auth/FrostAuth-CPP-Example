@@ -250,40 +250,13 @@ The ban reason appears in the dashboard and when the user next tries to sign in.
 app->Ban("memory patch detected at 0x140001000");
 ```
 
-## Server-sided webhooks
+## Server-side webhooks
 
 Call a webhook by the ID the operator configured. The API stores the destination and applies the product's tier rules. The client sends the parameters and body.
 
 ```cpp
 frostauth::Json res = app->Webhook("discord", "", "{\"content\":\"Hello from FrostAuth\"}");
 std::cout << "upstream " << res.str_or("status") << " (ok: " << res.dump() << ")\n";
-```
-
-## Download file
-
-> The server currently disables file downloads. `File()` throws `File downloads are disabled on this server`. The example shows how to save a file once downloads are available.
-
-Operators upload files per product. File access follows the product's tier and version rules.
-
-```cpp
-try {
-    std::vector<unsigned char> bytes = app->File("loader");
-    std::ofstream out("loader.bin", std::ios::binary);
-    out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-} catch (const frostauth::FrostAuthError& e) {
-    std::cout << "Download failed: " << e.what() << "\n";
-    return 1;
-}
-```
-
-## Changing username
-
-A signed-in user can change their username after the API checks their password again.
-
-```cpp
-std::string name = Ask("New username: ");
-frostauth::Json res = app->ChangeUsername(name, Ask("Password: "));
-std::cout << "Renamed to " << res.str_or("username") << "\n";
 ```
 
 ## Heartbeat & offline
