@@ -1,34 +1,21 @@
 # FrostAuth-CPP-Example 🌟
 
-FrostAuth C++ example SDK for https://www.frostauth.cc license key API auth.
+C++ example for the FrostAuth licensing API at https://www.frostauth.cc.
 
-This example ships the SDK source directly — `frostauth.hpp` + `frostauth.cpp`.
-Copy those two files into your own project, link libsodium, and you're integrated.
-No prebuilt binaries, no submodule step.
+Copy `frostauth.hpp` and `frostauth.cpp` into your project and link libsodium. The example ships as source.
 
 ## Bugs
 
-If you're running this example with no significant changes and something's broken,
-open an issue with your FrostAuth version, compiler, and the exact error text.
-
-We do **NOT** provide support for wiring FrostAuth into your project. If the
-build steps below don't make sense yet, learn some C++ first (Google/YouTube),
-then come back. You'll need it for everything after integration too.
+If the example fails with little or no modification, open an issue with your FrostAuth version, compiler version, and the exact error. SDK support covers bugs you can reproduce with the example.
 
 ## Security practices
 
-* Ship releases through an obfuscator/protector (VMProtect, Themida) and use
-their SDK markers on license checks, not just the installer.
-* Run frequent integrity checks so patched memory (.text hooks, detours) kills
-the session instead of granting access.
-* Never write a downloaded file to disk if you don't want the user to have it.
-Execute in memory and wipe the buffer the moment you're done.
-* Treat every client answer as advisory. The server already re-checks the
-license on each call — don't add a local "isValid" boolean that bypasses it.
+- If you use VMProtect or Themida, put the protector's markers around the license checks.
+- Run integrity checks during the session. End the session if a check detects tampering.
+- Keep files you need to protect on the server. Clear temporary buffers when the app is done with them.
+- Use the API to recheck licenses and enforce access to server resources there. A local `isValid` flag alone can't enforce access.
 
-FrostAuth signs every response and pins the server key, but no API survives a
-client that trusts itself. Obfuscation + integrity checks are what stop
-tampering; the API only stops key sharing.
+The SDK verifies signed responses with the bundled key. Integrity checks make client-side tampering harder, and device rules limit where a key can be used.
 
 ## Copyright License
 
@@ -38,18 +25,13 @@ This SDK is distributed under Elastic License 2.0. See [LICENSE](LICENSE).
 
 ## What is FrostAuth?
 
-FrostAuth is a cloud licensing platform that protects your software from piracy
-and unauthorized access. Hardware-locked licenses, secure auth, real-time
-analytics, and a dashboard your customers never see. Client SDKs for
-[C++](https://www.frostauth.cc) (this repo), C#, Python, Go, Rust, Java, and
-JavaScript. Come ask questions on Discord: https://www.frostauth.cc/discord
+FrostAuth is a cloud licensing service for software. It offers hardware-locked licenses, app authentication, real-time analytics, and a dashboard for operators. SDKs are available for [C++](https://www.frostauth.cc), C#, Python, Go, Rust, Java, and JavaScript. Product questions go to https://www.frostauth.cc/discord.
 
 ## Requirements
 
-* CMake 3.20+, Ninja, a C++17 compiler
-* libsodium — Windows: `vcpkg install libsodium:x64-mingw-static`
-(linux: `apt install libsodium-dev`, macOS: `brew install libsodium`)
-* Windows HTTP goes through WinHTTP (no extra dep). Linux/macOS link libcurl.
+- CMake 3.20 or newer, Ninja, and a C++17 compiler.
+- Install libsodium with `vcpkg install libsodium:x64-mingw-static` on Windows, `apt install libsodium-dev` on Linux, or `brew install libsodium` on macOS.
+- Windows uses WinHTTP. Linux and macOS require libcurl.
 
 ## Build
 
@@ -60,8 +42,7 @@ cmake --build build
 ./build/frostauth-console.exe
 ```
 
-The CMake auto-detects a vcpkg libsodium install (`C:/vcpkg` or `%VCPKG_ROOT%`).
-To pin the toolchain yourself:
+CMake looks for vcpkg under `C:/vcpkg` or `%VCPKG_ROOT%`. You can also pass the toolchain path directly.
 
 ```bash
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -72,24 +53,18 @@ cmake --build build
 
 ## `FrostAuthClient` instance definition
 
-Open your FrostAuth dashboard, pick your product, and copy the three values
-into [`examples/console_main.cpp`](examples/console_main.cpp):
+In the FrostAuth dashboard, open the product and copy its owner ID and product ID into [`examples/console_main.cpp`](examples/console_main.cpp). Set the version to the one your app ships.
 
 ```cpp
 frostauth::Options o;
-o.owner = "YOUR-OWNER-ID";       // dashboard → product → owner id
-o.product = "YOUR-PRODUCT-ID";   // dashboard → product → product id
-o.version = "1.0.0";             // must match the version you ship
-// o.base_url = "https://api.frostauth.cc";  // default, only override for self-hosting
-
-auto app = frostauth::FrostAuthClient::Create(std::move(o));
+o.owner = "0809y7MP";                                  // dashboard → product → owner id
+o.product = "33abf48a-8e33-4df5-a4bd-d79195704d52";    // dashboard → product → product id
+o.version = "1.0.0";                                   // must match the version you ship
 ```
 
 ## Initialize application
 
-You must call this before anything else. It fetches the public catalog and
-pins the server's signing key (TOFU) — every later response is Ed25519-checked
-against it, so a MITM serving a fake key aborts here instead of later.
+Call `Init()` before making other SDK calls. It fetches the public product catalog and compares the server's key ID and Ed25519 public key with the values bundled in the SDK. Initialization fails if they differ. The SDK uses the pinned key to verify signed responses.
 
 ```cpp
 try {
@@ -102,6 +77,8 @@ try {
 
 ## Display application information
 
+Call `AppData()` after activation or sign-in returns a session token.
+
 ```cpp
 frostauth::Json appData = app->AppData();
 const frostauth::Json* prod = appData.find("product");
@@ -113,8 +90,7 @@ std::cout << "Users: " << appData.str_or("numUsers") << "\n";
 
 ## Check session validation
 
-Use this to re-check the license/session with the server. Falls back from a
-stale session token to the stored license key once.
+Use `Validate()` after activation or sign-in to check the license again. If the API rejects a stale session token, the SDK retries once with the stored license key when it has one.
 
 ```cpp
 try {
@@ -128,9 +104,7 @@ try {
 
 ## Check blacklist status
 
-Checks whether this device/IP/key is blacklisted. Optional: the server already
-refuses blacklisted callers on login/register, so this is just an early exit
-for clients that want to close before showing UI.
+`CheckBlacklist()` requires an active session. The API checks blacklist rules during login and registration as well.
 
 ```cpp
 try {
@@ -170,9 +144,7 @@ try {
 
 ## Upgrade user with key
 
-Attaches a license key to an existing app user (adds time). Unlike login and
-register this opens **no session** — sign the user in after a successful
-upgrade.
+Apply a license key to an existing account to add time. Sign in after the upgrade to open a session.
 
 ```cpp
 std::string username = Ask("Username: ");
@@ -185,8 +157,7 @@ app->Login(username, password);
 
 ## Login with just license key
 
-For key-only products. Binds the key to this machine and opens a session —
-no username needed.
+For a key-only product, activate with the license key. The API applies the product's device rules and issues a session token where supported.
 
 ```cpp
 std::string key = Ask("License: ");
@@ -200,7 +171,7 @@ try {
 
 ## User Data
 
-Everything about the current session lives in the snapshot:
+Read the current user, account, device, and subscriptions from the snapshot.
 
 ```cpp
 frostauth::Json snap = app->Snapshot();
@@ -219,8 +190,7 @@ if (const frostauth::Json* subs = snap.find("subscriptions"); subs && subs->is_a
 
 ## Check subscription of user
 
-Gate features by tier. Compare against the tier name you configured on the
-dashboard — exact match, case-insensitive on the server side.
+Use the tier name you configured in the dashboard. The server matches tier names case-insensitively.
 
 ```cpp
 bool hasPro = false;
@@ -240,9 +210,7 @@ if (!hasPro) {
 
 ## Application variables
 
-Server-side strings, global for all users (feature flags, MOTD, config).
-Read-only from the client; edit them on the dashboard. Tier- and
-version-gated server-side.
+Edit shared strings such as feature flags, configuration, and the message of the day in the dashboard. The SDK reads them subject to the API's tier and version rules.
 
 ```cpp
 std::string motd = app->Variable("maintenance_message");
@@ -251,8 +219,7 @@ std::cout << "MOTD: " << motd << "\n";
 
 ## User Variables
 
-Per-user key/value pairs. Read and write them unless the operator marked one
-read-only (balances, ranks — server-writable only).
+Use these calls to read and update values for the current user. The API blocks writes to variables the operator marked read-only.
 
 ```cpp
 frostauth::Json all = app->ListVars();                       // every variable on this user
@@ -263,9 +230,7 @@ std::cout << "theme: " << theme.str_or("value") << "\n";
 
 ## Application Logs
 
-Ship an event to the operator log. Good for anti-debug alerts and crash
-breadcrumbs. If the operator set a Discord webhook, it lands there instead of
-the dashboard (dashboard logs rotate after 30 days).
+Use `Log()` to report events such as crashes or failed integrity checks. The API sends events to the configured Discord webhook if one is set. Dashboard logs rotate after 30 days.
 
 ```cpp
 app->Log("client started, integrity check passed");
@@ -273,14 +238,13 @@ app->Log("client started, integrity check passed");
 
 ## Ban the user
 
-Blacklists the HWID + IP. Call it when your integrity checks catch tampering.
-Only works after login. Ends the local session either way.
+Call `Ban()` after sign-in to blacklist the device's hardware ID and IP address. The SDK ends the local session even if the call fails.
 
 ```cpp
 app->Ban("debugger detected");
 ```
 
-With a reason (shown to the user on next login, visible on the dashboard):
+The ban reason appears in the dashboard and when the user next tries to sign in.
 
 ```cpp
 app->Ban("memory patch detected at 0x140001000");
@@ -288,9 +252,7 @@ app->Ban("memory patch detected at 0x140001000");
 
 ## Server-sided webhooks
 
-Fire an operator-configured webhook by id. The destination URL lives on the
-server — the client only supplies params/body, so secrets never ship in your
-binary. Tier-gated like files/variables.
+Call a webhook by the ID the operator configured. The API stores the destination and applies the product's tier rules. The client sends the parameters and body.
 
 ```cpp
 frostauth::Json res = app->Webhook("discord", "", "{\"content\":\"Hello from FrostAuth\"}");
@@ -299,12 +261,9 @@ std::cout << "upstream " << res.str_or("status") << " (ok: " << res.dump() << ")
 
 ## Download file
 
-> Currently disabled server-side (route unmounted). `File()` throws
-> `File downloads are disabled on this server` until file storage ships.
-> The snippet below is the integration pattern for when it lands.
+> The server currently disables file downloads. `File()` throws `File downloads are disabled on this server`. The example shows how to save a file once downloads are available.
 
-Files are operator-uploaded blobs (configs, scripts, DLLs) pinned per product,
-tier- and version-gated. The SDK verifies the SHA-256 before returning.
+Operators upload files per product. File access follows the product's tier and version rules.
 
 ```cpp
 try {
@@ -319,7 +278,7 @@ try {
 
 ## Changing username
 
-Lets a signed-in user rename themselves (password re-checked server-side).
+A signed-in user can change their username after the API checks their password again.
 
 ```cpp
 std::string name = Ask("New username: ");
@@ -329,9 +288,7 @@ std::cout << "Renamed to " << res.str_or("username") << "\n";
 
 ## Heartbeat & offline
 
-`Validate()` on a timer keeps the session fresh. The SDK also caches a signed
-offline assertion — when the network drops, `CheckOffline()` verifies it
-locally so the app keeps working inside the grace window instead of hard-exiting.
+The heartbeat calls `Validate()` on a timer. If the connection drops, `CheckOffline()` verifies the cached signed assertion locally. A valid assertion allows offline use through its expiry. If the assertion expires or fails verification, the next failed heartbeat clears the active state. The configured grace period applies to sessions that received no assertion.
 
 ```cpp
 app->StartHeartbeat();   // validates on the server cadence until Stop/Close
@@ -345,6 +302,5 @@ app->Logout();
 
 ## SDK layout
 
-* `frostauth.hpp` / `frostauth.cpp` — the whole SDK. Copy both, link
-libsodium + WinHTTP (`ws2_32`) on Windows or libcurl elsewhere.
-* `examples/console_main.cpp` — the interactive demo this README walks through.
+- `frostauth.hpp` and `frostauth.cpp` contain the SDK. Link libsodium and WinHTTP (`ws2_32`) on Windows, or libsodium and libcurl elsewhere.
+- `examples/console_main.cpp` is the interactive demo.
