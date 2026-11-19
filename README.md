@@ -34,16 +34,7 @@ tampering; the API only stops key sharing.
 
 Copyright (c) 2026 FrostAuth. All rights reserved.
 
-* You may not offer this SDK (or a modified copy of it) to third parties as a
-hosted or managed service that reproduces any substantial part of FrostAuth.
-* You may not move, change, disable, or circumvent the license-key
-functionality in the SDK, and you may not remove or obscure any license-key
-enforcement it performs.
-* You may not remove or obscure any licensing, copyright, or attribution
-notices in the SDK files.
-
-Thank you for your compliance — this SDK is a large body of work, and keeping
-the notices intact is what keeps it free.
+This SDK is distributed under Elastic License 2.0. See [LICENSE](LICENSE).
 
 ## What is FrostAuth?
 
