@@ -1,0 +1,4 @@
+C:/Users/redee/Desktop/Cerberus-Prod-Canary/sdk/langs/cpp/build/CMakeFiles/frostauth.dir
+C:/Users/redee/Desktop/Cerberus-Prod-Canary/sdk/langs/cpp/build/CMakeFiles/frostauth-console.dir
+C:/Users/redee/Desktop/Cerberus-Prod-Canary/sdk/langs/cpp/build/CMakeFiles/edit_cache.dir
+C:/Users/redee/Desktop/Cerberus-Prod-Canary/sdk/langs/cpp/build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,5 @@
+# ninja log v7
+48	12901	8112751477248582	CMakeFiles/frostauth-console.dir/examples/console_main.cpp.obj	27f036b4f4e03d04
+37	18051	8112751477131325	CMakeFiles/frostauth.dir/frostauth.cpp.obj	b7fec35a50768693
+18052	18253	8112751657291371	libfrostauth.a	a996cc68ef1aa49d
+18253	18646	8112751659297671	frostauth-console.exe	15be6bf6501277b
